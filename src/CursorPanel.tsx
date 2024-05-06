@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useState } from "react";
-import { Cursor } from "./Cursor";
-import { throttle } from "throttle-debounce";
-import { generateClient } from "aws-amplify/api";
-import { Schema } from "../amplify/data/resource";
+import { useEffect, useLayoutEffect, useState } from 'react'
+import { Cursor } from './Cursor'
+import { throttle } from 'throttle-debounce'
+import { generateClient } from 'aws-amplify/api'
+import { Schema } from '../amplify/data/resource'
 
 type CursorPanelProps = {
   myUsername: string
@@ -12,22 +12,51 @@ type CursorPanelProps = {
 const client = generateClient<Schema>()
 
 export function CursorPanel({ myUsername, currentRoomId }: CursorPanelProps) {
-  const [cursors, setCursors] = useState<Record<string, { x: number, y: number }>>({})
-  const [myPosition, setMyPosition] = useState<{ x: number, y: number }>({ x: 0, y: 0 })
-
+  const [cursors, setCursors] = useState<Record<string, { x: number; y: number }>>({})
+  const [myPosition, setMyPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   useEffect(() => {
-    // Add cursor subscriptions here
+    // Add subscriptions here
+    const sub = client.subscriptions
+      .subscribeCursor({
+        roomId: currentRoomId,
+        myUsername: myUsername,
+      })
+      .subscribe({
+        next: (event) => {
+          if (!event) {
+            return
+          }
+          if (event.username === myUsername) {
+            return
+          }
+
+          setCursors((cursors) => {
+            return {
+              ...cursors,
+              [event.username]: event,
+            }
+          })
+        },
+      })
+
+    return () => sub.unsubscribe()
   }, [myUsername, currentRoomId])
 
-  useEffect(() => { setCursors({}) }, [currentRoomId])
+  useEffect(() => {
+    setCursors({})
+  }, [currentRoomId])
 
   useLayoutEffect(() => {
-    const debouncedPublish = throttle(150, (username: string, x: number, y: number) => {
-      // Add cursor publishing here
-    }, {
-      noLeading: true
-    })
+    const debouncedPublish = throttle(
+      150,
+      (username: string, x: number, y: number) => {
+        client.mutations.publishCursor({ roomId: currentRoomId, username, x, y })
+      },
+      {
+        noLeading: true,
+      }
+    )
 
     function handleMouseMove(e: MouseEvent) {
       const x = Math.round(window.innerWidth / 2 - e.clientX)
@@ -39,10 +68,17 @@ export function CursorPanel({ myUsername, currentRoomId }: CursorPanelProps) {
     window.addEventListener('mousemove', handleMouseMove)
     return () => window.removeEventListener('mousemove', handleMouseMove)
   }, [myUsername, currentRoomId])
-  return <>
-    {Object.keys(cursors)
-      .map(username =>
-        <Cursor username={username} x={cursors[username].x} y={cursors[username].y} key={username} />)}
-    <Cursor username={myUsername} x={myPosition.x} y={myPosition.y} myself key={myUsername} />
-  </>
+  return (
+    <>
+      {Object.keys(cursors).map((username) => (
+        <Cursor
+          username={username}
+          x={cursors[username].x}
+          y={cursors[username].y}
+          key={username}
+        />
+      ))}
+      <Cursor username={myUsername} x={myPosition.x} y={myPosition.y} myself key={myUsername} />
+    </>
+  )
 }
